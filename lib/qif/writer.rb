@@ -14,7 +14,8 @@ module Qif
   #     )
   #   end
   class Writer
-    attr_accessor :type, :format
+
+    attr_accessor :type, :format, :accounts, :account
     
     # Open a qif file for writing and yield a Qif::Writer instance.
     # For parameters see #new.
@@ -51,30 +52,34 @@ module Qif
       @io = io.respond_to?(:write) ? io : File.open(io, 'w')
       @type = type
       @format = format
-      @transactions = []
-      @accounts = []
+      @accounts = {}
       
       if block_given?
         yield self
         self.write
       end
     end
-    
+
     # Add a transaction for writing
     def <<(transaction)
-      case transaction.class.to_s
-      when "Qif::Transaction"
-        @transactions << transaction
-      when "Qif::Account"
-        @accounts << transaction
-      end  
+      case transaction.class.name 
+        when 'Qif::Account'
+          @account = transaction.to_s
+          accounts[@account] ||= {:tnx => []}
+
+        when 'Qif::Transaction' 
+          accounts[@account] ||= {:tnx => []}
+          accounts[@account][:tnx] << transaction
+      end
     end
     
     # Write the qif file
     def write
-      write_account
       write_header
-      write_transactions
+      accounts.each do |account_name, args|
+        write_record(account_name) if account_name
+        args[:tnx].each {|t| write_transaction(t) }
+      end
     end
     
     # Close the qif file
@@ -86,16 +91,6 @@ module Qif
     
     def write_header
       @io.write("!Type:%s\n" % @type)
-    end
-
-    def write_account
-      write_record(@accounts.first.to_s) # only one account per file
-    end
-    
-    def write_transactions
-      @transactions.each do |t|
-        write_transaction(t)
-      end
     end
     
     def write_transaction(transaction)
